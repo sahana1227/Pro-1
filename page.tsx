@@ -18,6 +18,7 @@ import {
   Eye,
   Target,
   Layers,
+  Copy,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -80,6 +81,9 @@ export default function WebsiteAuditTool() {
   const [progress, setProgress] = useState(0)
   const [formLinks, setFormLinks] = useState<string[]>([])
   const [formLogs, setFormLogs] = useState<string[]>([])
+  const [formDomains, setFormDomains] = useState<string[]>([])
+  const [formDetails, setFormDetails] = useState<any[]>([])
+  const [extractionType, setExtractionType] = useState<'legacy' | 'domains' | 'detailed'>('detailed')
 
   const validateUrl = (inputUrl: string): string | null => {
     try {
@@ -179,25 +183,49 @@ export default function WebsiteAuditTool() {
     setLoading(true)
     setFormLinks([])
     setFormLogs([])
+    setFormDomains([])
+    setFormDetails([])
+    setError("")
 
     try {
       console.log("🔍 Starting form validation for:", validatedUrl)
       const response = await fetch("/api/formValidation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: validatedUrl }),
+        body: JSON.stringify({ url: validatedUrl, type: extractionType }),
       })
 
       console.log("📡 Response status:", response.status)
       const data = await response.json()
       console.log("📊 Response data:", data)
 
-      if (data.forms && data.forms.length > 0) {
-        setFormLinks(data.forms)
-        console.log("✅ Forms found:", data.forms.length)
+      if (extractionType === 'domains') {
+        if (data.domains && data.domains.length > 0) {
+          setFormDomains(data.domains)
+          console.log("✅ Form domains found:", data.domains.length)
+        } else {
+          setError("No form domains found on this website.")
+          console.log("❌ No form domains found")
+        }
+      } else if (extractionType === 'detailed') {
+        if (data.forms && data.forms.length > 0) {
+          setFormDetails(data.forms)
+          setFormDomains(data.domains || [])
+          setFormLinks(data.forms.map((form: any) => `${validatedUrl}#${form.id}`))
+          console.log("✅ Detailed forms found:", data.forms.length, "domains:", data.domains?.length || 0)
+        } else {
+          setError("No forms found on this website.")
+          console.log("❌ No forms found")
+        }
       } else {
-        setError("No forms found on this website.")
-        console.log("❌ No forms found")
+        // Legacy mode
+        if (data.forms && data.forms.length > 0) {
+          setFormLinks(data.forms)
+          console.log("✅ Forms found:", data.forms.length)
+        } else {
+          setError("No forms found on this website.")
+          console.log("❌ No forms found")
+        }
       }
     } catch (err) {
       console.error("❌ Form validation error:", err)
@@ -548,42 +576,179 @@ export default function WebsiteAuditTool() {
             </div>
 
             {/* Form Results */}
-            {formLinks.length > 0 && (
-              <Card className="shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
-                <CardHeader>
-                  <CardTitle className="text-2xl text-slate-800">Form Validation Results</CardTitle>
-                  <CardDescription className="text-base">
-                    Extracted forms and autofill activity
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-6">
-                    {formLinks.map((link, index) => (
-                      <Card key={index} className="p-4 shadow-md">
-                        <p className="text-sm text-slate-600 mb-2">Form {index + 1}: {link}</p>
+            {(formLinks.length > 0 || formDomains.length > 0 || formDetails.length > 0) && (
+              <div className="space-y-6">
+                {/* Extraction Type Selector */}
+                <Card className="shadow-lg border-0 bg-white/95 backdrop-blur-sm">
+                  <CardHeader>
+                    <CardTitle className="text-xl text-slate-800 flex items-center gap-2">
+                      <Globe className="h-5 w-5" />
+                      Form Extraction Type
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex gap-2 flex-wrap">
+                      {(['legacy', 'domains', 'detailed'] as const).map((type) => (
                         <button
-                          onClick={() => handleAutofill(link, index)}
-                          className="bg-blue-600 text-white px-4 py-2 rounded mb-3 hover:bg-blue-700"
+                          key={type}
+                          onClick={() => setExtractionType(type)}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                            extractionType === type
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
                         >
-                          Autofill
+                          {type.charAt(0).toUpperCase() + type.slice(1)} Mode
                         </button>
-                        <iframe src={link} width="100%" height="300" className="border" />
-                      </Card>
-                    ))}
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
 
-                    {formLogs.length > 0 && (
-                      <Card className="p-6 bg-gray-50 border">
-                        <h3 className="text-lg font-semibold text-slate-800 mb-3">Activity Log</h3>
-                        <ul className="list-disc pl-6 text-sm text-slate-700 space-y-1">
-                          {formLogs.map((log, i) => (
-                            <li key={i}>{log}</li>
-                          ))}
-                        </ul>
-                      </Card>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                {/* Domain URLs Display */}
+                {formDomains.length > 0 && (
+                  <Card className="shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
+                    <CardHeader>
+                      <CardTitle className="text-2xl text-slate-800 flex items-center gap-2">
+                        <Globe className="h-6 w-6" />
+                        Extracted Form Domain URLs
+                        <Badge variant="secondary">{formDomains.length} domains</Badge>
+                      </CardTitle>
+                      <CardDescription className="text-base">
+                        Domain URLs extracted from form action attributes
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-3">
+                        {formDomains.map((domain, index) => (
+                          <div key={index} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                            <div className="flex items-center gap-3">
+                              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                              <div>
+                                <div className="font-medium text-sm">{domain.replace(/^https?:\/\//, '')}</div>
+                                <div className="text-xs text-gray-500">{domain}</div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => window.open(domain, '_blank')}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                                title="Open domain"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(domain)}
+                                className="p-2 text-gray-600 hover:bg-gray-50 rounded"
+                                title="Copy domain"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Detailed Form Information */}
+                {formDetails.length > 0 && (
+                  <Card className="shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
+                    <CardHeader>
+                      <CardTitle className="text-2xl text-slate-800 flex items-center gap-2">
+                        <FileText className="h-6 w-6" />
+                        Detailed Form Analysis
+                        <Badge variant="secondary">{formDetails.length} forms</Badge>
+                      </CardTitle>
+                      <CardDescription className="text-base">
+                        Complete form information with fields and domains
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {formDetails.map((form, index) => (
+                          <Card key={index} className="p-4 border">
+                            <div className="flex items-start justify-between mb-3">
+                              <div>
+                                <h4 className="font-semibold text-lg">Form {index + 1}: {form.id}</h4>
+                                {form.name && <p className="text-sm text-gray-600">Name: {form.name}</p>}
+                                <p className="text-sm text-gray-600">Method: {form.method}</p>
+                                <p className="text-sm text-gray-600">Action: {form.action}</p>
+                                <p className="text-sm text-blue-600 font-medium">Domain: {form.domain}</p>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <Badge variant="outline">{form.total_fields} fields</Badge>
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={() => handleAutofill(`${url}#${form.id}`, index)}
+                                    className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
+                                  >
+                                    Autofill
+                                  </button>
+                                  <button
+                                    onClick={() => window.open(form.domain, '_blank')}
+                                    className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-500 mb-2">
+                              Fields: {form.input_count} inputs, {form.textarea_count} textareas, {form.select_count} selects
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Legacy Form Links Display */}
+                {formLinks.length > 0 && extractionType === 'legacy' && (
+                  <Card className="shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
+                    <CardHeader>
+                      <CardTitle className="text-2xl text-slate-800">Form Validation Results</CardTitle>
+                      <CardDescription className="text-base">
+                        Extracted forms and autofill activity
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-6">
+                        {formLinks.map((link, index) => (
+                          <Card key={index} className="p-4 shadow-md">
+                            <p className="text-sm text-slate-600 mb-2">Form {index + 1}: {link}</p>
+                            <button
+                              onClick={() => handleAutofill(link, index)}
+                              className="bg-blue-600 text-white px-4 py-2 rounded mb-3 hover:bg-blue-700"
+                            >
+                              Autofill
+                            </button>
+                            <iframe src={link} width="100%" height="300" className="border" />
+                          </Card>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Activity Log */}
+                {formLogs.length > 0 && (
+                  <Card className="shadow-lg border-0 bg-white/95 backdrop-blur-sm">
+                    <CardHeader>
+                      <CardTitle className="text-xl text-slate-800">Activity Log</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ul className="list-disc pl-6 text-sm text-slate-700 space-y-1">
+                        {formLogs.map((log, i) => (
+                          <li key={i}>{log}</li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             )}
           </div>
         )}
