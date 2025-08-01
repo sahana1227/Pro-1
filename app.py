@@ -4,6 +4,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
 
 from flask import Flask, request, jsonify, render_template, send_file
 from modules.autofill_bot import extract_forms_from_url, autofill_and_validate_form
+from modules.enhanced_form_extractor import crawl_website_sync, extract_single_page_forms_sync
+from modules.enhanced_autofill import autofill_form_sync
 from flask_cors import CORS
 import csv
 import io
@@ -813,6 +815,90 @@ def health_check():
         },
         "basic_analysis": True
     })
+@app.route('/api/formValidation', methods=['POST'])
+def form_validation():
+    """Enhanced form validation endpoint with website crawling"""
+    try:
+        data = request.get_json()
+        url = data.get('url', '').strip()
+        crawl_mode = data.get('mode', 'single')  # 'single' or 'crawl'
+        
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        
+        print(f"🔍 Starting form validation for: {url} (mode: {crawl_mode})")
+        
+        if crawl_mode == 'crawl':
+            # Full website crawl
+            max_pages = data.get('max_pages', 20)
+            max_depth = data.get('max_depth', 2)
+            results = crawl_website_sync(url, max_pages=max_pages, max_depth=max_depth)
+        else:
+            # Single page extraction
+            results = extract_single_page_forms_sync(url)
+        
+        # Convert form data to the format expected by the frontend
+        form_links = []
+        for form in results.get('forms', []):
+            form_links.append(form.get('form_link', f"{form['url']}#form_{form['form_index']}"))
+        
+        print(f"✅ Found {len(form_links)} forms")
+        
+        return jsonify({
+            'forms': form_links,
+            'detailed_forms': results.get('forms', []),
+            'summary': results.get('crawl_summary') or results.get('summary', {}),
+            'pages_crawled': results.get('pages_crawled', 1),
+            'status': 'success'
+        })
+        
+    except Exception as e:
+        print(f"❌ Form validation failed: {str(e)}")
+        return jsonify({
+            'error': f'Form validation failed: {str(e)}',
+            'status': 'error'
+        }), 500
+
+@app.route('/api/autofill', methods=['POST'])
+def enhanced_autofill():
+    """Enhanced autofill endpoint using detailed form data"""
+    try:
+        data = request.get_json()
+        form_url = data.get('link', '')
+        form_index = data.get('index', 0)
+        
+        # If we have detailed form data, use it directly
+        if 'form_data' in data:
+            form_data = data['form_data']
+        else:
+            # Extract form data from the URL first
+            results = extract_single_page_forms_sync(form_url.split('#')[0])
+            forms = results.get('forms', [])
+            
+            if form_index >= len(forms):
+                return jsonify({
+                    'error': f'Form {form_index} not found',
+                    'status': 'error'
+                }), 400
+            
+            form_data = forms[form_index]
+        
+        # Perform autofill
+        logs = autofill_form_sync(form_data)
+        
+        return jsonify({
+            'logs': logs,
+            'status': 'success'
+        })
+        
+    except Exception as e:
+        print(f"❌ Autofill failed: {str(e)}")
+        return jsonify({
+            'error': f'Autofill failed: {str(e)}',
+            'status': 'error'
+        }), 500
+
+# Legacy endpoints for backward compatibility
 @app.route('/extract_forms', methods=['POST'])
 def extract_forms():
     url = request.json.get('url')
