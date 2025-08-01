@@ -177,8 +177,10 @@ export default function WebsiteAuditTool() {
     }
 
     setLoading(true)
+    setLoadingType("Extracting forms from website...")
     setFormLinks([])
     setFormLogs([])
+    setError("")
 
     try {
       console.log("🔍 Starting form validation for:", validatedUrl)
@@ -192,24 +194,40 @@ export default function WebsiteAuditTool() {
       const data = await response.json()
       console.log("📊 Response data:", data)
 
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`)
+      }
+
       if (data.forms && data.forms.length > 0) {
         setFormLinks(data.forms)
         console.log("✅ Forms found:", data.forms.length)
+        setFormLogs([`✅ Successfully extracted ${data.total || data.forms.length} forms from the website`])
+        
+        if (data.details) {
+          data.details.forEach((detail: any, index: number) => {
+            setFormLogs(prev => [...prev, `📋 Form ${index + 1}: ${detail.fields} fields, method: ${detail.method.toUpperCase()}`])
+          })
+        }
       } else {
-        setError("No forms found on this website.")
+        setError("No forms found on this website. The page may not contain any forms or may require JavaScript to load.")
         console.log("❌ No forms found")
       }
     } catch (err) {
       console.error("❌ Form validation error:", err)
-      setError("Form validation failed. Please check the console for details.")
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred"
+      setError(`Form extraction failed: ${errorMessage}`)
+      setFormLogs([`❌ Form extraction failed: ${errorMessage}`])
     } finally {
       setLoading(false)
+      setLoadingType("")
     }
   }
 
   const handleAutofill = async (link: string, index: number) => {
     try {
       console.log("🤖 Starting autofill for:", link, "index:", index)
+      setFormLogs(prev => [...prev, `🤖 Starting autofill for form ${index + 1}...`])
+      
       const response = await fetch("/api/autofill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -219,16 +237,22 @@ export default function WebsiteAuditTool() {
       console.log("📡 Autofill response status:", response.status)
       const data = await response.json()
       console.log("📊 Autofill response data:", data)
-      
-      if (data.logs) {
-        setFormLogs(prev => [...prev, ...data.logs])
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      if (data.logs && Array.isArray(data.logs)) {
+        setFormLogs(prev => [...prev, `--- Form ${index + 1} Autofill Results ---`, ...data.logs, ""])
         console.log("✅ Autofill logs added:", data.logs.length, "entries")
       } else {
+        setFormLogs(prev => [...prev, "⚠ Autofill completed but no detailed logs received"])
         console.log("❌ No logs received from autofill")
       }
     } catch (err) {
       console.error("❌ Autofill error:", err)
-      setFormLogs(prev => [...prev, "❌ Autofill failed. Check console for details."])
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred"
+      setFormLogs(prev => [...prev, `❌ Autofill failed for form ${index + 1}: ${errorMessage}`, ""])
     }
   }
 
