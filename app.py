@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
 
 from flask import Flask, request, jsonify, render_template, send_file
-from modules.autofill_bot import extract_forms_from_url, autofill_and_validate_form
+from modules.autofill_bot import extract_forms_from_url, autofill_and_validate_form, extract_domain_urls_from_forms, extract_detailed_form_info
 from flask_cors import CORS
 import csv
 import io
@@ -816,8 +816,29 @@ def health_check():
 @app.route('/extract_forms', methods=['POST'])
 def extract_forms():
     url = request.json.get('url')
-    form_links = extract_forms_from_url(url)
-    return jsonify({'forms': [{'link': link} for link in form_links]})
+    extract_type = request.json.get('type', 'legacy')  # 'legacy', 'domains', or 'detailed'
+    
+    if extract_type == 'domains':
+        # Extract only domain URLs from form actions
+        domain_urls = extract_domain_urls_from_forms(url)
+        return jsonify({
+            'domains': domain_urls,
+            'total_domains': len(domain_urls)
+        })
+    elif extract_type == 'detailed':
+        # Extract detailed form information
+        form_details = extract_detailed_form_info(url)
+        domain_urls = list(set([form['domain'] for form in form_details]))
+        return jsonify({
+            'forms': form_details,
+            'domains': domain_urls,
+            'total_forms': len(form_details),
+            'total_domains': len(domain_urls)
+        })
+    else:
+        # Legacy behavior for backward compatibility
+        form_links = extract_forms_from_url(url)
+        return jsonify({'forms': [{'link': link} for link in form_links]})
 
 @app.route('/autofill', methods=['POST'])
 def autofill():
