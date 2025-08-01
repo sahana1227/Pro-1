@@ -80,6 +80,9 @@ export default function WebsiteAuditTool() {
   const [progress, setProgress] = useState(0)
   const [formLinks, setFormLinks] = useState<string[]>([])
   const [formLogs, setFormLogs] = useState<string[]>([])
+  const [detailedForms, setDetailedForms] = useState<any[]>([])
+  const [formSummary, setFormSummary] = useState<any>(null)
+  const [crawlMode, setCrawlMode] = useState<'single' | 'crawl'>('single')
 
   const validateUrl = (inputUrl: string): string | null => {
     try {
@@ -179,13 +182,22 @@ export default function WebsiteAuditTool() {
     setLoading(true)
     setFormLinks([])
     setFormLogs([])
+    setDetailedForms([])
+    setFormSummary(null)
 
     try {
-      console.log("🔍 Starting form validation for:", validatedUrl)
+      console.log("🔍 Starting enhanced form validation for:", validatedUrl, "mode:", crawlMode)
+      const requestBody = { 
+        url: validatedUrl, 
+        mode: crawlMode,
+        max_pages: crawlMode === 'crawl' ? 20 : 1,
+        max_depth: crawlMode === 'crawl' ? 2 : 1
+      }
+      
       const response = await fetch("/api/formValidation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: validatedUrl }),
+        body: JSON.stringify(requestBody),
       })
 
       console.log("📡 Response status:", response.status)
@@ -194,14 +206,19 @@ export default function WebsiteAuditTool() {
 
       if (data.forms && data.forms.length > 0) {
         setFormLinks(data.forms)
+        setDetailedForms(data.detailed_forms || [])
+        setFormSummary(data.summary || null)
         console.log("✅ Forms found:", data.forms.length)
+        if (crawlMode === 'crawl') {
+          console.log("📄 Pages crawled:", data.pages_crawled)
+        }
       } else {
-        setError("No forms found on this website.")
+        setError(`No forms found on this website${crawlMode === 'crawl' ? ' (crawled ' + (data.pages_crawled || 1) + ' pages)' : ''}.`)
         console.log("❌ No forms found")
       }
     } catch (err) {
       console.error("❌ Form validation error:", err)
-      setError("Form validation failed. Please check the console for details.")
+      setError("Enhanced form validation failed. Please check the console for details.")
     } finally {
       setLoading(false)
     }
@@ -209,7 +226,7 @@ export default function WebsiteAuditTool() {
 
   const handleAutofill = async (link: string, index: number) => {
     try {
-      console.log("🤖 Starting autofill for:", link, "index:", index)
+      console.log("🤖 Starting enhanced autofill for:", link, "index:", index)
       const response = await fetch("/api/autofill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -223,12 +240,14 @@ export default function WebsiteAuditTool() {
       if (data.logs) {
         setFormLogs(prev => [...prev, ...data.logs])
         console.log("✅ Autofill logs added:", data.logs.length, "entries")
+      } else if (data.error) {
+        setFormLogs(prev => [...prev, `❌ ${data.error}`])
       } else {
         console.log("❌ No logs received from autofill")
       }
     } catch (err) {
       console.error("❌ Autofill error:", err)
-      setFormLogs(prev => [...prev, "❌ Autofill failed. Check console for details."])
+      setFormLogs(prev => [...prev, "❌ Enhanced autofill failed. Check console for details."])
     }
   }
 
@@ -378,23 +397,65 @@ export default function WebsiteAuditTool() {
                 </Card>
               </div>
 
-              {/* Form Validation Card */}
-              <Card
-                className="border-2 border-emerald-200 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all duration-300 cursor-pointer transform hover:scale-[1.02] shadow-xl hover:shadow-2xl"
-                onClick={() => !loading && handleFormValidation()}
-              >
-                <CardContent className="p-6 text-center">
-                  <FileText className="h-10 w-10 mx-auto mb-3" />
-                  <h3 className="text-xl font-bold mb-2">Form Validation</h3>
-                  <p className="text-emerald-100 mb-3">Extract & autofill all forms</p>
-                  <div className="flex items-center justify-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    <Badge variant="secondary" className="bg-emerald-400/20 text-emerald-100 border-emerald-300">
-                      ~30-60 sec
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Form Validation Section */}
+              <div className="space-y-4">
+                <Card className="border-2 border-emerald-200 bg-white shadow-lg">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg text-emerald-700 flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Form Validation Options
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex gap-4">
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="crawlMode"
+                          value="single"
+                          checked={crawlMode === 'single'}
+                          onChange={(e) => setCrawlMode(e.target.value as 'single' | 'crawl')}
+                          className="text-emerald-600"
+                        />
+                        <span className="text-sm font-medium">Single Page</span>
+                      </label>
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="crawlMode"
+                          value="crawl"
+                          checked={crawlMode === 'crawl'}
+                          onChange={(e) => setCrawlMode(e.target.value as 'single' | 'crawl')}
+                          className="text-emerald-600"
+                        />
+                        <span className="text-sm font-medium">Crawl Website</span>
+                      </label>
+                    </div>
+                    <Card
+                      className="border-2 border-emerald-200 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 transition-all duration-300 cursor-pointer transform hover:scale-[1.02] shadow-xl hover:shadow-2xl"
+                      onClick={() => !loading && handleFormValidation()}
+                    >
+                      <CardContent className="p-6 text-center">
+                        <FileText className="h-10 w-10 mx-auto mb-3" />
+                        <h3 className="text-xl font-bold mb-2">
+                          {crawlMode === 'single' ? 'Extract Forms' : 'Crawl & Extract Forms'}
+                        </h3>
+                        <p className="text-emerald-100 mb-3">
+                          {crawlMode === 'single' 
+                            ? 'Extract & autofill forms from current page' 
+                            : 'Crawl website & find all forms (up to 20 pages)'}
+                        </p>
+                        <div className="flex items-center justify-center gap-2">
+                          <Clock className="h-4 w-4" />
+                          <Badge variant="secondary" className="bg-emerald-400/20 text-emerald-100 border-emerald-300">
+                            {crawlMode === 'single' ? '~30-60 sec' : '~1-3 min'}
+                          </Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -551,34 +612,155 @@ export default function WebsiteAuditTool() {
             {formLinks.length > 0 && (
               <Card className="shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
                 <CardHeader>
-                  <CardTitle className="text-2xl text-slate-800">Form Validation Results</CardTitle>
+                  <CardTitle className="text-2xl text-slate-800 flex items-center gap-2">
+                    <FileText className="h-6 w-6 text-emerald-600" />
+                    Form Validation Results
+                  </CardTitle>
                   <CardDescription className="text-base">
-                    Extracted forms and autofill activity
+                    {crawlMode === 'crawl' 
+                      ? `Found ${formLinks.length} forms across ${formSummary?.total_pages || 1} pages`
+                      : `Found ${formLinks.length} forms on this page`}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
+                  {/* Summary Statistics */}
+                  {formSummary && (
+                    <Card className="mb-6 bg-emerald-50 border-emerald-200">
+                      <CardContent className="p-4">
+                        <h3 className="text-lg font-semibold text-emerald-800 mb-3">Summary</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-emerald-600">{formSummary.total_forms}</div>
+                            <div className="text-emerald-700">Total Forms</div>
+                          </div>
+                          {formSummary.pages_with_forms && (
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-emerald-600">{formSummary.pages_with_forms}</div>
+                              <div className="text-emerald-700">Pages with Forms</div>
+                            </div>
+                          )}
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-emerald-600">{formSummary.forms_with_required_fields || 0}</div>
+                            <div className="text-emerald-700">Required Fields</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-emerald-600">{Math.round(formSummary.average_fields_per_form || 0)}</div>
+                            <div className="text-emerald-700">Avg Fields/Form</div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   <div className="space-y-6">
-                    {formLinks.map((link, index) => (
-                      <Card key={index} className="p-4 shadow-md">
-                        <p className="text-sm text-slate-600 mb-2">Form {index + 1}: {link}</p>
-                        <button
-                          onClick={() => handleAutofill(link, index)}
-                          className="bg-blue-600 text-white px-4 py-2 rounded mb-3 hover:bg-blue-700"
-                        >
-                          Autofill
-                        </button>
-                        <iframe src={link} width="100%" height="300" className="border" />
+                    {detailedForms.map((form, index) => (
+                      <Card key={index} className="p-6 shadow-lg border-l-4 border-l-emerald-500">
+                        <div className="mb-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-lg font-semibold text-slate-800">
+                              Form {index + 1} {form.form_name && `(${form.form_name})`}
+                            </h4>
+                            <Badge variant="outline" className="text-xs">
+                              {form.method} {form.action && '→ Action URL'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-slate-600 mb-2">
+                            <strong>URL:</strong> {form.url}
+                          </p>
+                          {form.action && (
+                            <p className="text-sm text-slate-600 mb-2">
+                              <strong>Action:</strong> {form.action}
+                            </p>
+                          )}
+                          <div className="flex gap-4 text-sm text-slate-600">
+                            <span><strong>Fields:</strong> {form.field_count}</span>
+                            <span><strong>Buttons:</strong> {form.buttons?.length || 0}</span>
+                            {form.has_file_upload && <Badge variant="secondary" className="text-xs">File Upload</Badge>}
+                            {form.has_required_fields && <Badge variant="destructive" className="text-xs">Required Fields</Badge>}
+                          </div>
+                        </div>
+
+                        {/* Form Fields Preview */}
+                        {form.fields && form.fields.length > 0 && (
+                          <div className="mb-4">
+                            <h5 className="text-sm font-semibold text-slate-700 mb-2">Form Fields:</h5>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                              {form.fields.slice(0, 6).map((field: any, fieldIndex: number) => (
+                                <div key={fieldIndex} className="bg-slate-50 p-2 rounded border">
+                                  <span className="font-medium">{field.name || field.id || 'Unnamed'}</span>
+                                  <span className="text-slate-500 ml-2">({field.type})</span>
+                                  {field.required && <span className="text-red-500 ml-1">*</span>}
+                                  {field.placeholder && (
+                                    <div className="text-slate-400 text-xs mt-1">"{field.placeholder}"</div>
+                                  )}
+                                </div>
+                              ))}
+                              {form.fields.length > 6 && (
+                                <div className="bg-slate-100 p-2 rounded border text-center text-slate-500">
+                                  +{form.fields.length - 6} more fields
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex gap-3 mb-4">
+                          <button
+                            onClick={() => handleAutofill(formLinks[index], index)}
+                            className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2"
+                          >
+                            <Zap className="h-4 w-4" />
+                            Smart Autofill
+                          </button>
+                          <button
+                            onClick={() => window.open(form.url, '_blank')}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Open Form
+                          </button>
+                        </div>
+
+                        {/* Form Preview */}
+                        <div className="border rounded-lg overflow-hidden">
+                          <div className="bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 border-b">
+                            Form Preview
+                          </div>
+                          <iframe 
+                            src={form.url} 
+                            width="100%" 
+                            height="300" 
+                            className="border-0"
+                            title={`Form ${index + 1} Preview`}
+                          />
+                        </div>
                       </Card>
                     ))}
 
                     {formLogs.length > 0 && (
-                      <Card className="p-6 bg-gray-50 border">
-                        <h3 className="text-lg font-semibold text-slate-800 mb-3">Activity Log</h3>
-                        <ul className="list-disc pl-6 text-sm text-slate-700 space-y-1">
-                          {formLogs.map((log, i) => (
-                            <li key={i}>{log}</li>
-                          ))}
-                        </ul>
+                      <Card className="p-6 bg-slate-50 border">
+                        <h3 className="text-lg font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                          <Eye className="h-5 w-5 text-blue-600" />
+                          Autofill Activity Log
+                        </h3>
+                        <div className="max-h-64 overflow-y-auto">
+                          <ul className="space-y-2 text-sm text-slate-700">
+                            {formLogs.map((log, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-slate-400 text-xs mt-1 min-w-[20px]">{i + 1}.</span>
+                                <span className={`${
+                                  log.includes('✅') ? 'text-green-700' :
+                                  log.includes('❌') ? 'text-red-700' :
+                                  log.includes('⚠️') ? 'text-yellow-700' :
+                                  log.includes('📊') ? 'text-blue-700' :
+                                  'text-slate-700'
+                                }`}>
+                                  {log}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       </Card>
                     )}
                   </div>
